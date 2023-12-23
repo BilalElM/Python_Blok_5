@@ -1,8 +1,20 @@
 import filecmp
 import os
-from filecmp import dircmp
+import re
 from jinja2 import Environment, FileSystemLoader
 # https://docs.python.org/3/library/filecmp.html
+
+
+def extract_comments(file_path):
+    comments = []
+    with open(file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+        for line in lines:
+            match = re.match(r'^\s*#\s*(.*)$', line)
+            if match:
+                comment_text = match.group(1)
+                comments.append(comment_text)
+    return comments
 
 
 def build_matrix(directory_path):
@@ -20,14 +32,24 @@ def build_matrix(directory_path):
         for other_author in other_authors:
             other_author_path = os.path.join(directory_path, other_author)
 
-            comparison = dircmp(author_path, other_author_path)
+            # filecmp wordt hier gebruikt om identieke bestanden te vinden in de folder
+            comparison = filecmp.dircmp(author_path, other_author_path)
 
             common_files = comparison.common_files
             for common_file in common_files:
                 file_path = os.path.join(author_path, common_file)
-                if filecmp.cmp(file_path, os.path.join(other_author_path, common_file)):
-                    matrix_opmerkingen[author][other_author].append(
-                        f"Identieke file {common_file}")
+                other_file_path = os.path.join(other_author_path, common_file)
+
+                # controleert bestanden op identieke namen
+                if filecmp.cmp(file_path, other_file_path):
+                    comments_author = set(extract_comments(file_path))
+                    comments_other_author = set(
+                        extract_comments(other_file_path))
+
+                    # controleert de comments in de file
+                    if comments_author == comments_other_author and comments_author:
+                        matrix_opmerkingen[author][other_author].append(
+                            f"Identieke comments in file {common_file}: {', '.join(comments_author)}")
 
     return authors, matrix_opmerkingen
 
