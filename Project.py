@@ -1,5 +1,6 @@
-from difflib import ndiff
+import ast
 import filecmp
+# https://docs.python.org/3/library/filecmp.html
 import os
 import re
 from jinja2 import Environment, FileSystemLoader
@@ -35,10 +36,14 @@ def remove_comments(source_code):
     return transformed_module.code, module
 
 
-def compare_cst(source_code1, source_code2):
-    source_code1_no_comments, cst1 = remove_comments(source_code1)
-    source_code2_no_comments, cst2 = remove_comments(source_code2)
-    return (source_code1_no_comments == source_code2_no_comments, cst1 == cst2)
+def compare_ast(source_code1, source_code2):
+    _, cst1 = remove_comments(source_code1)
+    _, cst2 = remove_comments(source_code2)
+
+    ast1 = ast.parse(cst1.code)
+    ast2 = ast.parse(cst2.code)
+
+    return ast.dump(ast1) == ast.dump(ast2)
 
 
 def build_matrix(directory_path):
@@ -71,12 +76,19 @@ def build_matrix(directory_path):
                         source_code1 = file1.read()
                         source_code2 = file2.read()
 
-                        identical_content, identical_ast = compare_cst(
-                            source_code1, source_code2)
+                        identical_ast = compare_ast(source_code1, source_code2)
 
-                        if identical_content:
+                        if identical_ast:
                             matrix_opmerkingen[author][other_author].append(
-                                f"Identieke inhoud in file {common_file}")
+                                f"Identieke abstracte syntaxboom in file {common_file}")
+
+                            if common_file != file_path:
+                                matrix_opmerkingen[author][other_author].append(
+                                    f"Identieke bestandsnamen: {common_file}")
+
+                            if source_code1 != source_code2:
+                                matrix_opmerkingen[author][other_author].append(
+                                    f"Identieke bestandsinhoud in file {common_file}")
 
                             comments_author = set(
                                 extract_single_line_comments(file_path))
@@ -99,12 +111,6 @@ def build_matrix(directory_path):
                             if misspelled_words:
                                 matrix_opmerkingen[author][other_author].append(
                                     f"Identieke spelfouten in comments in file {common_file}: {', '.join(misspelled_words)}")
-
-                            matrix_opmerkingen[author][other_author].append(
-                                f"Identieke syntaxboom in file {common_file}")
-
-                            matrix_opmerkingen[author][other_author].append(
-                                f"Identieke bestandsnaam in file {common_file}")
 
     return authors, matrix_opmerkingen
 
