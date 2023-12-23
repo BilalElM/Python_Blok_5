@@ -1,9 +1,20 @@
+from difflib import ndiff
 import filecmp
 import os
 import re
 from jinja2 import Environment, FileSystemLoader
 from spellchecker import SpellChecker
+from libcst import Comment, TrailingWhitespace, parse_module
+from libcst import CSTTransformer, RemoveFromParent
 # https://docs.python.org/3/library/filecmp.html
+
+
+class CommentRemovalTransformer(CSTTransformer):
+    def leave_Comment(self, original_node: Comment, updated_node: Comment) -> Comment:
+        return RemoveFromParent()
+
+    def leave_TrailingWhitespace(self, original_node: TrailingWhitespace, updated_node: TrailingWhitespace):
+        return RemoveFromParent()
 
 
 def extract_single_line_comments(file_path):
@@ -16,6 +27,26 @@ def extract_single_line_comments(file_path):
                 comment_text = match.group(1)
                 comments.append(comment_text)
     return comments
+
+
+def remove_comments(source_code):
+    module = parse_module(source_code)
+
+    transformer = CommentRemovalTransformer()
+
+    transformed_module = module.visit(transformer)
+
+    return transformed_module.code
+
+
+def compare_cst(source_code1, source_code2):
+    source_code1_no_comments = remove_comments(source_code1)
+    source_code2_no_comments = remove_comments(source_code2)
+
+    diff = list(ndiff(source_code1_no_comments.splitlines(),
+                source_code2_no_comments.splitlines()))
+
+    return all(line.startswith(' ') or line.startswith('?') for line in diff)
 
 
 def build_matrix(directory_path):
@@ -43,19 +74,16 @@ def build_matrix(directory_path):
                 file_path = os.path.join(author_path, common_file)
                 other_file_path = os.path.join(other_author_path, common_file)
 
-                # controleert bestanden op identieke namen
                 if filecmp.cmp(file_path, other_file_path):
                     comments_author = set(
                         extract_single_line_comments(file_path))
                     comments_other_author = set(
                         extract_single_line_comments(other_file_path))
 
-                    # controleert de comments in de file
                     if comments_author == comments_other_author and comments_author:
                         matrix_opmerkingen[author][other_author].append(
                             f"Identieke single-line comments in file {common_file}: {', '.join(comments_author)}")
 
-                    # controleert spelfouten in comments
                     comments_author_words = set(
                         [word.lower() for comment in comments_author for word in comment.split()])
                     comments_other_author_words = set(
@@ -68,12 +96,20 @@ def build_matrix(directory_path):
                         matrix_opmerkingen[author][other_author].append(
                             f"Identieke spelfouten in comments in file {common_file}: {', '.join(misspelled_words)}")
 
+                    with open(file_path, 'r', encoding='utf-8') as file1, open(other_file_path, 'r', encoding='utf-8') as file2:
+                        source_code1 = file1.read()
+                        source_code2 = file2.read()
+
+                        if compare_cst(source_code1, source_code2):
+                            matrix_opmerkingen[author][other_author].append(
+                                f"Identieke CST na verwijderen comments in file {common_file}")
+
     return authors, matrix_opmerkingen
 
 
-def generate_report(auteurs, matrix_opmerkingen):
+def generate_report(authors, matrix_opmerkingen):
     alias_mapping = {auteur: f"student_{index + 1}" for index,
-                     auteur in enumerate(auteurs)}
+                     auteur in enumerate(authors)}
 
     env = Environment(
         loader=FileSystemLoader("."),
@@ -82,7 +118,7 @@ def generate_report(auteurs, matrix_opmerkingen):
 
     template = env.get_template("outputtemplate.html")
     html_output = template.render(
-        matrix_opmerkingen=matrix_opmerkingen, alias_mapping=alias_mapping, auteurs=auteurs)
+        matrix_opmerkingen=matrix_opmerkingen, alias_mapping=alias_mapping, auteurs=authors)
 
     output_file_name = input(
         "Geef de naam van het outputbestand (bijv. output.html): ")
