@@ -2,10 +2,11 @@ import filecmp
 import os
 import re
 from jinja2 import Environment, FileSystemLoader
+from spellchecker import SpellChecker
 # https://docs.python.org/3/library/filecmp.html
 
 
-def extract_comments(file_path):
+def extract_single_line_comments(file_path):
     comments = []
     with open(file_path, 'r', encoding='utf-8') as file:
         lines = file.readlines()
@@ -23,6 +24,8 @@ def build_matrix(directory_path):
 
     matrix_opmerkingen = {author: {other_author: []
                                    for other_author in authors} for author in authors}
+
+    spell = SpellChecker()
 
     for author in authors:
         author_path = os.path.join(directory_path, author)
@@ -42,14 +45,28 @@ def build_matrix(directory_path):
 
                 # controleert bestanden op identieke namen
                 if filecmp.cmp(file_path, other_file_path):
-                    comments_author = set(extract_comments(file_path))
+                    comments_author = set(
+                        extract_single_line_comments(file_path))
                     comments_other_author = set(
-                        extract_comments(other_file_path))
+                        extract_single_line_comments(other_file_path))
 
                     # controleert de comments in de file
                     if comments_author == comments_other_author and comments_author:
                         matrix_opmerkingen[author][other_author].append(
-                            f"Identieke comments in file {common_file}: {', '.join(comments_author)}")
+                            f"Identieke single-line comments in file {common_file}: {', '.join(comments_author)}")
+
+                    # controleert spelfouten in comments
+                    comments_author_words = set(
+                        [word.lower() for comment in comments_author for word in comment.split()])
+                    comments_other_author_words = set(
+                        [word.lower() for comment in comments_other_author for word in comment.split()])
+                    common_comment_words = comments_author_words.intersection(
+                        comments_other_author_words)
+
+                    misspelled_words = set(spell.unknown(common_comment_words))
+                    if misspelled_words:
+                        matrix_opmerkingen[author][other_author].append(
+                            f"Identieke spelfouten in comments in file {common_file}: {', '.join(misspelled_words)}")
 
     return authors, matrix_opmerkingen
 
