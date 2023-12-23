@@ -6,7 +6,6 @@ from jinja2 import Environment, FileSystemLoader
 from spellchecker import SpellChecker
 from libcst import Comment, TrailingWhitespace, parse_module
 from libcst import CSTTransformer, RemoveFromParent
-# https://docs.python.org/3/library/filecmp.html
 
 
 class CommentRemovalTransformer(CSTTransformer):
@@ -31,22 +30,15 @@ def extract_single_line_comments(file_path):
 
 def remove_comments(source_code):
     module = parse_module(source_code)
-
     transformer = CommentRemovalTransformer()
-
     transformed_module = module.visit(transformer)
-
-    return transformed_module.code
+    return transformed_module.code, module
 
 
 def compare_cst(source_code1, source_code2):
-    source_code1_no_comments = remove_comments(source_code1)
-    source_code2_no_comments = remove_comments(source_code2)
-
-    diff = list(ndiff(source_code1_no_comments.splitlines(),
-                source_code2_no_comments.splitlines()))
-
-    return all(line.startswith(' ') or line.startswith('?') for line in diff)
+    source_code1_no_comments, cst1 = remove_comments(source_code1)
+    source_code2_no_comments, cst2 = remove_comments(source_code2)
+    return (source_code1_no_comments == source_code2_no_comments, cst1 == cst2)
 
 
 def build_matrix(directory_path):
@@ -65,44 +57,54 @@ def build_matrix(directory_path):
 
         for other_author in other_authors:
             other_author_path = os.path.join(directory_path, other_author)
-
-            # filecmp wordt hier gebruikt om identieke bestanden te vinden in de folder
             comparison = filecmp.dircmp(author_path, other_author_path)
 
             common_files = comparison.common_files
+            common_files.sort()
+
             for common_file in common_files:
                 file_path = os.path.join(author_path, common_file)
                 other_file_path = os.path.join(other_author_path, common_file)
 
                 if filecmp.cmp(file_path, other_file_path):
-                    comments_author = set(
-                        extract_single_line_comments(file_path))
-                    comments_other_author = set(
-                        extract_single_line_comments(other_file_path))
-
-                    if comments_author == comments_other_author and comments_author:
-                        matrix_opmerkingen[author][other_author].append(
-                            f"Identieke single-line comments in file {common_file}: {', '.join(comments_author)}")
-
-                    comments_author_words = set(
-                        [word.lower() for comment in comments_author for word in comment.split()])
-                    comments_other_author_words = set(
-                        [word.lower() for comment in comments_other_author for word in comment.split()])
-                    common_comment_words = comments_author_words.intersection(
-                        comments_other_author_words)
-
-                    misspelled_words = set(spell.unknown(common_comment_words))
-                    if misspelled_words:
-                        matrix_opmerkingen[author][other_author].append(
-                            f"Identieke spelfouten in comments in file {common_file}: {', '.join(misspelled_words)}")
-
                     with open(file_path, 'r', encoding='utf-8') as file1, open(other_file_path, 'r', encoding='utf-8') as file2:
                         source_code1 = file1.read()
                         source_code2 = file2.read()
 
-                        if compare_cst(source_code1, source_code2):
+                        identical_content, identical_ast = compare_cst(
+                            source_code1, source_code2)
+
+                        if identical_content:
                             matrix_opmerkingen[author][other_author].append(
-                                f"Identieke CST na verwijderen comments in file {common_file}")
+                                f"Identieke inhoud in file {common_file}")
+
+                            comments_author = set(
+                                extract_single_line_comments(file_path))
+                            comments_other_author = set(
+                                extract_single_line_comments(other_file_path))
+
+                            if comments_author == comments_other_author and comments_author:
+                                matrix_opmerkingen[author][other_author].append(
+                                    f"Identieke single-line comments in file {common_file}: {', '.join(comments_author)}")
+
+                            comments_author_words = set(
+                                [word.lower() for comment in comments_author for word in comment.split()])
+                            comments_other_author_words = set(
+                                [word.lower() for comment in comments_other_author for word in comment.split()])
+                            common_comment_words = comments_author_words.intersection(
+                                comments_other_author_words)
+
+                            misspelled_words = set(
+                                spell.unknown(common_comment_words))
+                            if misspelled_words:
+                                matrix_opmerkingen[author][other_author].append(
+                                    f"Identieke spelfouten in comments in file {common_file}: {', '.join(misspelled_words)}")
+
+                            matrix_opmerkingen[author][other_author].append(
+                                f"Identieke syntaxboom in file {common_file}")
+
+                            matrix_opmerkingen[author][other_author].append(
+                                f"Identieke bestandsnaam in file {common_file}")
 
     return authors, matrix_opmerkingen
 
@@ -111,10 +113,7 @@ def generate_report(authors, matrix_opmerkingen):
     alias_mapping = {auteur: f"student_{index + 1}" for index,
                      auteur in enumerate(authors)}
 
-    env = Environment(
-        loader=FileSystemLoader("."),
-        autoescape=True
-    )
+    env = Environment(loader=FileSystemLoader("."), autoescape=True)
 
     template = env.get_template("outputtemplate.html")
     html_output = template.render(
