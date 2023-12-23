@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plagiaatdetectierapport</title>
+  </head>
+  <body>
+    <h1>Plagiaat detectierapport</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>Combinatie</th>
+          {% for auteur in auteurs %}
+          <th>{{ alias_mapping[auteur] }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for auteur in auteurs %}
+        <tr>
+          <td>{{ alias_mapping[auteur] }}</td>
+          {% for andere_auteur in auteurs %}
+          <td>{{ matrix_opmerkingen[auteur][andere_auteur] | join(', ') }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
